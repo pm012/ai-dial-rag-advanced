@@ -11,24 +11,26 @@ from task.models.role import Role
 # Explain user message structure (firstly will be provided RAG context and the user question).
 # Provide instructions that LLM should use RAG Context when answer on User Question, will restrict LLM to answer
 # questions that are not related microwave usage, not related to context or out of history scope
-SYSTEM_PROMPT = """You are a RAG-powered assistant specialized in helping users with microwave oven operations and maintenance.
+SYSTEM_PROMPT = """You are a RAG-powered assistant that assists users with their questions about microwave usage.
+            
+## Structure of User message:
+`RAG CONTEXT` - Retrieved documents relevant to the query.
+`USER QUESTION` - The user's actual question.
 
-Your responses are based on the provided RAG Context from the microwave manual. You will receive messages in the following structure:
-1. RAG Context: Relevant excerpts from the microwave manual
-2. User Question: The actual question from the user
-
-Instructions:
-- Use ONLY the information from the RAG Context to answer questions
-- Focus exclusively on microwave-related topics (operation, safety, cleaning, cooking, maintenance)
-- If the question is not related to microwave usage or cannot be answered using the provided context, politely decline and explain that you can only assist with microwave-related questions based on the manual
-- Do not answer questions outside the scope of microwave operations, even if you have general knowledge about them
-- Be concise, accurate, and helpful in your responses
+## Instructions:
+- Use information from `RAG CONTEXT` as context when answering the `USER QUESTION`.
+- Cite specific sources when using information from the context.
+- Answer ONLY based on conversation history and RAG context.
+- If no relevant information exists in `RAG CONTEXT` or conversation history, state that you cannot answer the question.
 """
 
 # Provide structured system prompt, with RAG Context and User Question sections.
-USER_PROMPT = """RAG Context: {context}
+USER_PROMPT = """##RAG CONTEXT:
+{context}
 
-User Question: {question}"""
+
+##USER QUESTION: 
+{query}"""
 
 
 # - create embeddings client with 'text-embedding-3-small-1' model
@@ -44,8 +46,14 @@ User Question: {question}"""
 
 def main():
     # Initialize clients and processor
-    embeddings_client = DialEmbeddingsClient('text-embedding-3-small-1', API_KEY)
-    chat_client = DialChatCompletionClient('gpt-4o', API_KEY)
+    embeddings_client = DialEmbeddingsClient(
+        deployment_name='text-embedding-3-small-1',
+        api_key=API_KEY
+    )
+    chat_client = DialChatCompletionClient(
+        deployment_name='gpt-4o',
+        api_key=API_KEY
+    )
     
     db_config = {
         'host': 'localhost',
@@ -55,69 +63,64 @@ def main():
         'password': 'postgres'
     }
     
-    text_processor = TextProcessor(embeddings_client, db_config)
-    
-    # Process the microwave manual (only needs to be done once)
-    print("Processing microwave manual...")
-    text_processor.process_text_file(
-        'task/embeddings/microwave_manual.txt',
-        chunk_size=300,
-        overlap=40,
-        truncate_table=True
+    text_processor = TextProcessor(
+        embeddings_client=embeddings_client,
+        db_config=db_config
     )
-    print("Manual processed and stored in vector database.\n")
+    
+    # Process the microwave manual (optional)
+    print("🎯 Microwave RAG Assistant")
+    print("=" * 100)
+    load_context = input("\nLoad context to VectorDB (y/n)? > ").strip()
+    if load_context.lower().strip() in ['y', 'yes']:
+        text_processor.process_text_file(
+            file_name='task/embeddings/microwave_manual.txt',
+            chunk_size=300,
+            overlap=40,
+            dimensions=1536,
+            truncate_table=True
+        )
+        print("=" * 100)
     
     # Initialize conversation
     conversation = Conversation()
     conversation.add_message(Message(Role.SYSTEM, SYSTEM_PROMPT))
     
-    print("RAG Microwave Assistant")
-    print("=" * 50)
-    print("Ask questions about microwave operation and maintenance.")
-    print("Type 'exit' or 'quit' to end the conversation.\n")
-    
     # Main chat loop
     while True:
         # Get user input from console
-        user_input = input("You: ").strip()
+        user_request = input("\n➡️ ").strip()
         
-        if not user_input:
+        if not user_request:
             continue
             
-        if user_input.lower() in ['exit', 'quit']:
-            print("Goodbye!")
+        if user_request.lower().strip() in ['exit', 'quit']:
+            print("👋 Goodbye")
             break
         
-        # Retrieve context
-        print("\n[RETRIEVAL] Searching for relevant context...")
+        # Step 1: Retrieval
+        print(f"{'=' * 100}\n🔍 STEP 1: RETRIEVAL\n{'-' * 100}")
         context_chunks = text_processor.search(
-            user_input,
-            mode=SearchMode.COSINE_DISTANCE,
+            search_mode=SearchMode.COSINE_DISTANCE,
+            user_request=user_request,
             top_k=5,
-            min_score=0.5
+            score_threshold=0.5,
+            dimensions=1536
         )
         
-        print(f"[RETRIEVAL] Found {len(context_chunks)} relevant chunks")
-        
-        # Perform augmentation
+        # Step 2: Augmentation
+        print(f"\n{'=' * 100}\n🔗 STEP 2: AUGMENTATION\n{'-' * 100}")
         context_text = "\n\n".join(context_chunks)
-        augmented_prompt = USER_PROMPT.format(context=context_text, question=user_input)
-        
-        print(f"[AUGMENTATION] Prompt created (length: {len(augmented_prompt)} chars)")
-        
-        # Add user message to conversation
+        augmented_prompt = USER_PROMPT.format(context=context_text, query=user_request)
         conversation.add_message(Message(Role.USER, augmented_prompt))
+        print(f"Prompt:\n{augmented_prompt}")
         
-        # Perform generation
-        print("[GENERATION] Generating response...\n")
-        response = chat_client.get_completion(conversation.get_messages())
-        
-        # Add AI response to conversation
-        conversation.add_message(response)
-        
-        # Display response
-        print(f"Assistant: {response.content}\n")
-        print("-" * 50 + "\n")
+        # Step 3: Generation
+        print(f"\n{'=' * 100}\n🤖 STEP 3: GENERATION\n{'-' * 100}")
+        ai_message = chat_client.get_completion(conversation.get_messages())
+        print(f"✅ RESPONSE:\n{ai_message.content}")
+        print("=" * 100)
+        conversation.add_message(ai_message)
 
 
 if __name__ == "__main__":

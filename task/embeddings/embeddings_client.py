@@ -24,7 +24,11 @@ class DialEmbeddingsClient:
         self._endpoint = DIAL_EMBEDDINGS.format(model=deployment_name)
         self._api_key = api_key
 
-    def get_embeddings(self, input_texts: list[str], dimensions: int = 1536) -> dict[int, list[float]]:
+    def get_embeddings(
+            self, inputs: str | list[str],
+            dimensions: int,
+            print_response: bool = False
+    ) -> dict[int, list[float]]:
         """
         Generate embeddings for input texts using DIAL embeddings API.
         
@@ -39,28 +43,25 @@ class DialEmbeddingsClient:
             "api-key": self._api_key,
             "Content-Type": "application/json"
         }
-        
         request_data = {
-            "input": input_texts,
-            "dimensions": dimensions
+            "input": inputs,
+            "dimensions": dimensions,
         }
-        
+
         response = requests.post(url=self._endpoint, headers=headers, json=request_data, timeout=60)
-        
+
         if response.status_code == 200:
-            data = response.json()
-            embeddings_data = data.get("data", [])
-            
-            # Create dict with index as key and embedding as value
-            embeddings_dict = {}
-            for item in embeddings_data:
-                index = item.get("index")
-                embedding = item.get("embedding")
-                embeddings_dict[index] = embedding
-            
-            return embeddings_dict
-        else:
-            raise Exception(f"HTTP {response.status_code}: {response.text}")
+            response_json = response.json()
+            data = response_json.get("data", [])
+            if print_response:
+                print("\n" + "=" * 50 + " RESPONSE " + "=" * 50)
+                print(json.dumps(response_json, indent=2))
+                print("=" * 108)
+            return self._from_data(data)
+        raise Exception(f"HTTP {response.status_code}: {response.text}")
+
+    def _from_data(self, data: list[dict]) -> dict[int, list[float]]:
+        return {embedding_obj['index']: embedding_obj['embedding'] for embedding_obj in data}
 
 
 # Hint:
