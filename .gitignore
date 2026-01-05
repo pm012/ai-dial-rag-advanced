@@ -210,3 +210,5 @@ __marimo__/
 /backend/.syndicate-config
 syndicate*.yml
 .syndicate 
+.copilot-instructions.md
+.github/copilot-instructions.md

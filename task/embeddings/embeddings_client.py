@@ -5,7 +5,6 @@ import requests
 DIAL_EMBEDDINGS = 'https://ai-proxy.lab.epam.com/openai/deployments/{model}/embeddings'
 
 
-#TODO:
 # ---
 # https://dialx.ai/dial_api#operation/sendEmbeddingsRequest
 # ---
@@ -15,7 +14,53 @@ DIAL_EMBEDDINGS = 'https://ai-proxy.lab.epam.com/openai/deployments/{model}/embe
 #   with Embedding model and return back a dict with indexed embeddings (key is index from input list and value vector list)
 
 class DialEmbeddingsClient:
-    ...
+    _endpoint: str
+    _api_key: str
+
+    def __init__(self, deployment_name: str, api_key: str):
+        if not api_key or api_key.strip() == "":
+            raise ValueError("API key cannot be null or empty")
+        
+        self._endpoint = DIAL_EMBEDDINGS.format(model=deployment_name)
+        self._api_key = api_key
+
+    def get_embeddings(self, input_texts: list[str], dimensions: int = 1536) -> dict[int, list[float]]:
+        """
+        Generate embeddings for input texts using DIAL embeddings API.
+        
+        Args:
+            input_texts: List of text strings to generate embeddings for
+            dimensions: Dimension of the embedding vectors (default: 1536)
+            
+        Returns:
+            Dictionary mapping index to embedding vector: {0: [0.1, 0.2, ...], 1: [...], ...}
+        """
+        headers = {
+            "api-key": self._api_key,
+            "Content-Type": "application/json"
+        }
+        
+        request_data = {
+            "input": input_texts,
+            "dimensions": dimensions
+        }
+        
+        response = requests.post(url=self._endpoint, headers=headers, json=request_data, timeout=60)
+        
+        if response.status_code == 200:
+            data = response.json()
+            embeddings_data = data.get("data", [])
+            
+            # Create dict with index as key and embedding as value
+            embeddings_dict = {}
+            for item in embeddings_data:
+                index = item.get("index")
+                embedding = item.get("embedding")
+                embeddings_dict[index] = embedding
+            
+            return embeddings_dict
+        else:
+            raise Exception(f"HTTP {response.status_code}: {response.text}")
 
 
 # Hint:
